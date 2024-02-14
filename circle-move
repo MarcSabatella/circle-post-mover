@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# Hardcoded API key
+API_KEY="" # add your key here
+
+# Fetch communities and select the first one
+COMMUNITY_RESPONSE=$(curl -s -H "Authorization: Token $API_KEY" "https://app.circle.so/api/v1/communities")
+COMMUNITY_ID=$(echo "$COMMUNITY_RESPONSE" | jq -r '.[0].id')
+
+if [ -z "$COMMUNITY_ID" ]; then
+    echo "Error: Unable to fetch community ID. Please check your API key."
+    exit 1
+fi
+
+echo "Community ID: $COMMUNITY_ID"
+
+# Prompt user to enter source space slug
+read -p "Enter source space slug: " SOURCE_SPACE_SLUG
+
+# Prompt user to enter destination space slug
+read -p "Enter destination space slug: " DESTINATION_SPACE_SLUG
+
+# Initialize variables to store all spaces
+ALL_SPACES=""
+
+# Fetch spaces in the community page by page
+PAGE_NUMBER=1
+while true; do
+    SPACES_RESPONSE=$(curl -s -H "Authorization: Token $API_KEY" "https://app.circle.so/api/v1/spaces?community_id=$COMMUNITY_ID&page=$PAGE_NUMBER")
+    
+    # Break the loop if the response is an empty list (indicating no more spaces)
+    if [ "$SPACES_RESPONSE" = "[]" ]; then
+        break
+    fi
+
+    ALL_SPACES="$ALL_SPACES $SPACES_RESPONSE"
+    PAGE_NUMBER=$((PAGE_NUMBER + 1))
+done
+
+# Find source space info by matching slug
+SOURCE_SPACE_INFO=$(echo "$ALL_SPACES" | jq -r --arg slug "$SOURCE_SPACE_SLUG" '.[] | select(.slug == $slug)')
+
+# Check if source space info is empty (indicating no space found)
+if [ -z "$SOURCE_SPACE_INFO" ]; then
+    echo "Error: Source space not found for slug '$SOURCE_SPACE_SLUG'."
+    exit 1
+fi
+
+SOURCE_SPACE_ID=$(echo "$SOURCE_SPACE_INFO" | jq -r '.id')
+
+# Check if source space ID is empty (indicating invalid slug)
+if [ -z "$SOURCE_SPACE_ID" ]; then
+    echo "Error: Source space ID not found for slug '$SOURCE_SPACE_SLUG'."
+    exit 1
+fi
+
+echo "Source Space ID: $SOURCE_SPACE_ID"
+
+# Find destination space info by matching slug
+DESTINATION_SPACE_INFO=$(echo "$ALL_SPACES" | jq -r --arg slug "$DESTINATION_SPACE_SLUG" '.[] | select(.slug == $slug)')
+
+# Check if destination space info is empty (indicating no space found)
+if [ -z "$DESTINATION_SPACE_INFO" ]; then
+    echo "Error: Destination space not found for slug '$DESTINATION_SPACE_SLUG'."
+    exit 1
+fi
+
+DESTINATION_SPACE_ID=$(echo "$DESTINATION_SPACE_INFO" | jq -r '.id')
+
+# Check if destination space ID is empty (indicating invalid slug)
+if [ -z "$DESTINATION_SPACE_ID" ]; then
+    echo "Error: Destination space ID not found for slug '$DESTINATION_SPACE_SLUG'."
+    exit 1
+fi
+
+echo "Destination Space ID: $DESTINATION_SPACE_ID"
+
+# Fetch posts in the source space
+POSTS_RESPONSE=$(curl -s -H "Authorization: Token $API_KEY" "https://app.circle.so/api/v1/posts?community_id=$COMMUNITY_ID&space_id=$SOURCE_SPACE_ID")
+
+# Iterate through posts and copy them to the destination space
+echo "Copying posts from source space '$SOURCE_SPACE_SLUG' to destination space '$DESTINATION_SPACE_SLUG':"
+echo
+for ROW in $(echo "${POSTS_RESPONSE}" | jq -r '.[] | @base64'); do
+    _jq() {
+     echo ${ROW} | base64 --decode | jq -r ${1}
+    }
+
+    POST_ID=$(_jq '.id')
+    POST_NAME=$(_jq '.name')
+
+    echo "Copying post '$POST_NAME' (ID: $POST_ID) to destination space '$DESTINATION_SPACE_SLUG'"
+    # Example curl command to copy post with stdout redirected to /dev/null
+    # and stderr redirected to a log file
+    curl -X PUT -H "Authorization: Token $API_KEY" "https://app.circle.so/api/v1/posts/$POST_ID?community_id=$COMMUNITY_ID&space_id=$DESTINATION_SPACE_ID" >/dev/null 2>&1
+    #echo curl -X PUT -H "Authorization: Token $API_KEY" "https://app.circle.so/api/v1/posts/$POST_ID?community_id=$COMMUNITY_ID&space_id=$DESTINATION_SPACE_ID"
+done
