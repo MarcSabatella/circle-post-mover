@@ -1,7 +1,12 @@
 #!/bin/bash
 
 # Hardcoded API key
-API_KEY="" # add your key here
+API_KEY=$(cat ~/.circle-api 2>/dev/null)
+
+if [ -z "$API_KEY" ]; then
+    echo "Error: API key not found. Please make sure it's stored in ~/.circle-api."
+    exit 1
+fi
 
 # Fetch communities and select the first one
 COMMUNITY_RESPONSE=$(curl -s -H "Authorization: Token $API_KEY" "https://app.circle.so/api/v1/communities")
